@@ -13,17 +13,27 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
+import os, sys
 import numpy as np
 import scipy as scp
 import random
-from seg_utils import seg_utils as seg
+import logging
 
+import tensorflow as tf
+
+from evaluation import seg_utils as seg
 from tensorflow.python.framework import dtypes
 from math import ceil
 
-
-import tensorflow as tf
+# configure logging
+if 'TV_IS_DEV' in os.environ and os.environ['TV_IS_DEV']:
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                        level=logging.INFO,
+                        stream=sys.stdout)
+else:
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                        level=logging.INFO,
+                        stream=sys.stdout)
 
 
 def _add_softmax(hypes, logits):
@@ -52,7 +62,6 @@ def decoder(hypes, logits, train=True, skip=True, debug=False):
         sd = 1
 
     he_init = tf.contrib.layers.variance_scaling_initializer()
-
     l2_regularizer = tf.contrib.layers.l2_regularizer(hypes['wd'])
 
     # Build score_fr layer
@@ -69,6 +78,7 @@ def decoder(hypes, logits, train=True, skip=True, debug=False):
         num_classes=num_classes, name='upscore2', ksize=4, stride=2)
 
     he_init2 = tf.contrib.layers.variance_scaling_initializer(factor=2.0*sd)
+
     # Score feed2
     score_feed2 = tf.layers.conv2d(
         logits['feed2'], kernel_size=[1, 1], filters=num_classes,
@@ -117,10 +127,9 @@ def decoder(hypes, logits, train=True, skip=True, debug=False):
     return decoded_logits
 
 
-def _upscore_layer(bottom, upshape,
-                   num_classes, name,
-                   ksize=4, stride=2):
+def _upscore_layer(bottom, upshape, num_classes, name, ksize=4, stride=2):
     strides = [1, stride, stride, 1]
+
     with tf.variable_scope(name):
         in_features = bottom.get_shape()[3].value
 
@@ -131,8 +140,7 @@ def _upscore_layer(bottom, upshape,
 
         up_init = upsample_initilizer()
 
-        weights = tf.get_variable(name="weights", initializer=up_init,
-                                  shape=f_shape)
+        weights = tf.get_variable(name="weights", initializer=up_init, shape=f_shape)
 
         tf.add_to_collection(tf.GraphKeys.WEIGHTS, weights)
 
@@ -172,6 +180,7 @@ def upsample_initilizer(dtype=dtypes.float32):
                 value = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
                 bilinear[x, y] = value
         weights = np.zeros(shape)
+        
         for i in range(shape[2]):
             '''
             the next line of code is correct as given
@@ -217,13 +226,14 @@ def loss(hypes, decoded_logits, labels):
       loss: Loss tensor of type float.
     """
     logits = decoded_logits['logits']
+    num_classes = hypes['arch']['num_classes']
     with tf.name_scope('loss'):
 
-        logits = tf.reshape(logits, (-1, 2))
-        shape = [logits.get_shape()[0], 2]
+        logits = tf.reshape(logits, (-1, num_classes))
+        shape = [logits.get_shape()[0], num_classes]
         epsilon = tf.constant(value=hypes['solver']['epsilon'])
         # logits = logits + epsilon
-        labels = tf.to_float(tf.reshape(labels, (-1, 2)))
+        labels = tf.to_float(tf.reshape(labels, (-1, num_classes)))
 
         softmax = tf.nn.softmax(logits) + epsilon
 
@@ -263,7 +273,8 @@ def _compute_cross_entropy_mean(hypes, labels, softmax):
 
 
 def _compute_f1(hypes, labels, softmax, epsilon):
-    labels = tf.to_float(tf.reshape(labels, (-1, 2)))[:, 1]
+    num_classes = hypes['arch']['num_classes']
+    labels = tf.to_float(tf.reshape(labels, (-1, num_classes)))[:, 1]    
     logits = softmax[:, 1]
     true_positive = tf.reduce_sum(labels*logits)
     false_positive = tf.reduce_sum((1-labels)*logits)
@@ -287,14 +298,13 @@ def _compute_soft_ui(hypes, labels, softmax, epsilon):
     return mean_iou
 
 
-def evaluation(hyp, images, labels, decoded_logits, losses, global_step):
+# Bendidi> https://github.com/MarvinTeichmann/KittiSeg/issues/15
+def evaluation(hypes, images, labels, decoded_logits, losses, global_step):
     """Evaluate the quality of the logits at predicting the label.
-
     Args:
       logits: Logits tensor, float - [batch_size, NUM_CLASSES].
       labels: Labels tensor, int32 - [batch_size], with values in the
         range [0, NUM_CLASSES).
-
     Returns:
       A scalar int32 tensor with the number of examples (out of batch_size)
       that were predicted correctly.
@@ -304,25 +314,44 @@ def evaluation(hyp, images, labels, decoded_logits, losses, global_step):
     # the examples where the label's is was in the top k (here k=1)
     # of all logits for that example.
     eval_list = []
-    logits = tf.reshape(decoded_logits['logits'], (-1, 2))
-    labels = tf.reshape(labels, (-1, 2))
-
+    num_classes = hypes['arch']['num_classes']
+    logits = tf.reshape(decoded_logits['logits'], (-1, num_classes))
+    labels = tf.reshape(labels, (-1, num_classes))
     pred = tf.argmax(logits, dimension=1)
+    y = tf.argmax(labels, 1)
+    Prec = []
+    Rec = []
+    f1 = []
+    for i in range(num_classes):
+        tp = tf.count_nonzero(tf.cast(tf.equal(pred,i),tf.int32) * tf.cast(tf.equal(y,i),tf.int32))
+        tn = tf.count_nonzero(tf.cast(tf.not_equal(pred,i),tf.int32) * tf.cast(tf.not_equal(y,i),tf.int32))
+        fp = tf.count_nonzero(tf.cast(tf.equal(pred,i),tf.int32) * tf.cast(tf.not_equal(y,i),tf.int32))
+        fn = tf.count_nonzero(tf.cast(tf.not_equal(pred,i),tf.int32) * tf.cast(tf.equal(pred,i),tf.int32))
+        Prec.append(tp / (tp + fp))
+        Rec.append(tp / (tp + fn))
+        f1.append((2 * Prec[-1] * Rec[-1]) / (Prec[-1] + Rec[-1]))
 
-    negativ = tf.to_int32(tf.equal(pred, 0))
-    tn = tf.reduce_sum(negativ*labels[:, 0])
-    fn = tf.reduce_sum(negativ*labels[:, 1])
+    accuracy = tf.reduce_mean(tf.cast(tf.equal(y, pred), tf.float32))
+    
+    tf.summary.scalar("Accuracy", accuracy)
+    tf.summary.scalar("c1_Precision", Prec[1])
+    tf.summary.scalar("c1_Recall", Rec[1])
+    tf.summary.scalar("c1_F1_Score", f1[1])
+    tf.summary.scalar("c2_Precision", Prec[2])
+    tf.summary.scalar("c2_Recall", Rec[2])
+    tf.summary.scalar("c2_F1_Score", f1[2])
+    tf.summary.scalar("c3_Precision", Prec[3])
+    tf.summary.scalar("c3_Recall", Rec[3])
+    tf.summary.scalar("c3_F1_Score", f1[3])
 
-    positive = tf.to_int32(tf.equal(pred, 1))
-    tp = tf.reduce_sum(positive*labels[:, 1])
-    fp = tf.reduce_sum(positive*labels[:, 0])
-
-    eval_list.append(('Acc. ', (tn+tp)/(tn + fn + tp + fp)))
+    eval_list.append(('Acc. ', accuracy))
     eval_list.append(('xentropy', losses['xentropy']))
     eval_list.append(('weight_loss', losses['weight_loss']))
-
-    # eval_list.append(('Precision', tp/(tp + fp)))
-    # eval_list.append(('True BG', tn/(tn + fp)))
-    # eval_list.append(('True Street [Recall]', tp/(tp + fn)))
+    Prec = tf.convert_to_tensor(Prec)
+    Rec = tf.convert_to_tensor(Rec)
+    f1 = tf.convert_to_tensor(f1)
+    eval_list.append(('Overall Precision ', tf.reduce_mean(Prec)))
+    eval_list.append(('Overall Recall', tf.reduce_mean(Rec)))
+    eval_list.append(('Overall F1 score ', tf.reduce_mean(f1)))
 
     return eval_list

@@ -15,30 +15,11 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-import commentjson
 import logging
 import os
 import sys
-
 import collections
-
-
-def dict_merge(dct, merge_dct):
-    """ Recursive dict merge. Inspired by :meth:``dict.update()``, instead of
-    updating only top-level keys, dict_merge recurses down into dicts nested
-    to an arbitrary depth, updating keys. The ``merge_dct`` is merged into
-    ``dct``.
-    :param dct: dict onto which the merge is executed
-    :param merge_dct: dct merged into dct
-    :return: None
-    """
-    for k, v in merge_dct.iteritems():
-        if (k in dct and isinstance(dct[k], dict) and
-                isinstance(merge_dct[k], collections.Mapping)):
-            dict_merge(dct[k], merge_dct[k])
-        else:
-            dct[k] = merge_dct[k]
-
+import commentjson
 
 # configure logging
 if 'TV_IS_DEV' in os.environ and os.environ['TV_IS_DEV']:
@@ -50,14 +31,11 @@ else:
                         level=logging.INFO,
                         stream=sys.stdout)
 
-# https://github.com/tensorflow/tensorflow/issues/2034#issuecomment-220820070
-import numpy as np
-
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
-sys.path.insert(1, 'incl')
+sys.path.insert(1, 'submodules')
 
 import tensorvision.train as train
 import tensorvision.utils as utils
@@ -86,46 +64,59 @@ else:
                        'hence it will get overwritten by further runs.'))
 
 
-def main(_):
+def dict_merge(dct, merge_dct):
+    """ Recursive dict merge. Inspired by :meth:``dict.update()``, instead of
+    updating only top-level keys, dict_merge recurses down into dicts nested
+    to an arbitrary depth, updating keys. The ``merge_dct`` is merged into
+    ``dct``.
+    :param dct: dict onto which the merge is executed
+    :param merge_dct: dct merged into dct
+    :return: None
+    """
+    for k, v in merge_dct.iteritems():
+        if (k in dct and isinstance(dct[k], dict) and
+                isinstance(merge_dct[k], collections.Mapping)):
+            dict_merge(dct[k], merge_dct[k])
+        else:
+            dct[k] = merge_dct[k]
+
+
+def main(_):  
+    logging.info("Initializing GPUs, plugins and creating the essential folders")
     utils.set_gpus_to_use()
 
-    try:
-        import tensorvision.train
-        import tensorflow_fcn.utils
-    except ImportError:
-        logging.error("Could not import the submodules.")
-        logging.error("Please execute:"
-                      "'git submodule update --init --recursive'")
+    if FLAGS.hypes is None:
+        logging.error("No hypes are given.")
+        logging.error("Usage: python train.py --hypes hypes.json")
+        logging.error("   tf: tv-train --hypes hypes.json")
         exit(1)
 
-    if tf.app.flags.FLAGS.hypes is None:
-        logging.error("No hype file is given.")
-        logging.info("Usage: python train.py --hypes hypes/KittiClass.json")
-        exit(1)
-
-    with open(tf.app.flags.FLAGS.hypes, 'r') as f:
-        logging.info("f: %s", f)
+    with open(FLAGS.hypes) as f:
+        logging.info("f: %s", f)                
         hypes = commentjson.load(f)
+            
+    if FLAGS.mod is not None:
+        import ast
+        mod_dict = ast.literal_eval(FLAGS.mod)
+        dict_merge(hypes, mod_dict)
+    
+    logging.info("Loading plugins")
     utils.load_plugins()
 
-    if tf.app.flags.FLAGS.mod is not None:
-        import ast
-        mod_dict = ast.literal_eval(tf.app.flags.FLAGS.mod)
-        dict_merge(hypes, mod_dict)
+    logging.info("Set dirs")
+    utils.set_dirs(hypes, FLAGS.hypes)
 
-    if 'TV_DIR_RUNS' in os.environ:
-        os.environ['TV_DIR_RUNS'] = os.path.join(os.environ['TV_DIR_RUNS'],
-                                                 'KittiSeg')
-    utils.set_dirs(hypes, tf.app.flags.FLAGS.hypes)
-
+    logging.info("Add paths to sys")
     utils._add_paths_to_sys(hypes)
-
-    train.maybe_download_and_extract(hypes)
+    
     logging.info("Initialize training folder")
     train.initialize_training_folder(hypes)
-    logging.info("Start training")
+
+    tf.reset_default_graph()
+    
+    logging.info("Start training")    
     train.do_training(hypes)
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':    
     tf.app.run()

@@ -1,3 +1,21 @@
+# FacadeSeg (description of the main modifications)
+
+FacadeSeg is an **extension** of KittiSeg to performs multiclass segmentation of facade features (i.e. sky, roof, wall, windows, door, balcony, shop, and background). 
+
+## Tutorial
+
+### Getting started
+
+Run: `python segment.py --input_folder data/ --output_folder /data/segmentation/ --logdir RUNS/path/ --gpus NUMBER_OF_CORES` to obtain a prediction for each image in the folder [data/](data/) as input, and [data/segmentation/](data/segmentation) as output folder, using the architecture and weights from [RUNS/path/](RUNS/path/) with 4 cores.
+
+Run: `python train.py --hypes hypes/FacadeSeg.json` to train a model using Kitti Data.
+
+Run: `python run-train.sh` to train many models with different parameters and architecture at once. Prepare the folder hypes/ with a list of different hypes.json.
+
+Run: `python run-segment.sh RUNS/` to segment the images using different trained models at once. It collets all the subfolders in RUNS/, and does the inferences for each.
+
+
+
 # KittiSeg
 
 KittiSeg performs segmentation of roads by utilizing an FCN based model. The model achieved [first place](http://www.cvlibs.net/datasets/kitti/eval_road_detail.php?result=ca96b8137feb7a636f3d774c408b1243d8a6e0df) on the Kitti Road Detection Benchmark at submission time. Check out our [paper](https://arxiv.org/abs/1612.07695) for a detailed model description.
@@ -51,7 +69,7 @@ Run: `python evaluate.py` to evaluate a trained model.
 
 Run: `python train.py --hypes hypes/KittiSeg.json` to train a model using Kitti Data.
 
-If you like to understand the code, I would recommend looking at [demo.py](demo.py) first. I have documented each step as  	thoroughly as possible in this file.
+If you like to understand the code, I would recommend looking at [demo.py](demo.py) first. I have documented each step as   thoroughly as possible in this file.
 
 
 ### Manage Data Storage
@@ -149,4 +167,3 @@ If you benefit from this code, please cite our paper:
   year={2016}
 }
 ```
-

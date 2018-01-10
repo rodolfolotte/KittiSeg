@@ -1,7 +1,27 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+"""
+Evaluate CNN models for facade features detection 
 
-"""Trains, evaluates and saves the KittiSeg model."""
+Utilizes: Trained FacadeSeg weights. If no logdir is given, fails.
+
+Usage:  
+ python evaluate_facade.py
+    --logdir /home/rodolfo/Dropbox/phd/results/facades-benchmark/ruemonge2014/facadeSeg/FacadeSeg_VGG_2017_10_31_13.00/
+
+ tv-analyze --logdir /home/rodolfo/Dropbox/phd/results/facades-benchmark/ruemonge2014/facadeSeg/FacadeSeg_VGG_2017_10_31_13.00/
+
+--------------------------------------------------------------------------------
+This is an extension code from KittSeg
+
+Author: MarvinTeichmann
+
+Link: https://github.com/MarvinTeichmann/KittiSeg
+--------------------------------------------------------------------------------
+
+The MIT License (MIT)
+
+Copyright (c) 2017 Rodolfo Lotte
+
+"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -20,23 +40,15 @@ import tensorflow as tf
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
-sys.path.insert(1, 'incl')
+sys.path.insert(1, 'submodules')
 
 import tensorvision.train as train
 import tensorvision.analyze as ana
 import tensorvision.utils as utils
 
-from evaluation import kitti_test
+#from evaluation import facade_test
 
-flags.DEFINE_string('RUN', 'KittiSeg_pretrained',
-                    'Modifier for model parameters.')
-flags.DEFINE_string('hypes', 'hypes/KittiSeg.json',
-                    'File storing model parameters.')
-flags.DEFINE_string('name', None,
-                    'Append a name Tag to run.')
-
-flags.DEFINE_string('project', None,
-                    'Append a name Tag to run.')
+flags.DEFINE_string('hypes', 'hypes/FacadeSeg_VGG.json', 'File storing model parameters.')
 
 if 'TV_SAVE' in os.environ and os.environ['TV_SAVE']:
     tf.app.flags.DEFINE_boolean(
@@ -48,31 +60,6 @@ else:
         'save', True, ('Whether to save the run. In case --nosave (default) '
                        'output will be saved to the folder TV_DIR_RUNS/debug '
                        'hence it will get overwritten by further runs.'))
-
-
-segmentation_weights_url = ("ftp://mi.eng.cam.ac.uk/"
-                            "pub/mttt2/models/KittiSeg_pretrained.zip")
-
-
-def maybe_download_and_extract(runs_dir):
-    logdir = os.path.join(runs_dir, FLAGS.RUN)
-
-    if os.path.exists(logdir):
-        # weights are downloaded. Nothing to do
-        return
-
-    if not FLAGS.RUN == 'KittiSeg_pretrained':
-        return
-
-    import zipfile
-    download_name = utils.download(segmentation_weights_url, runs_dir)
-
-    logging.info("Extracting KittiSeg_pretrained.zip")
-
-    zipfile.ZipFile(download_name, 'r').extractall(runs_dir)
-
-    return
-
 
 def main(_):
     utils.set_gpus_to_use()
@@ -86,37 +73,31 @@ def main(_):
                       "'git submodule update --init --recursive'")
         exit(1)
 
-    with open(tf.app.flags.FLAGS.hypes, 'r') as f:
+    hypes_path = FLAGS.logdir
+    hypes_path = os.path.join(hypes_path, "model_files/hypes.json")
+
+    with open(hypes_path, 'r') as f:
         logging.info("f: %s", f)
         hypes = json.load(f)
+
     utils.load_plugins()
 
     if 'TV_DIR_RUNS' in os.environ:
-        runs_dir = os.path.join(os.environ['TV_DIR_RUNS'],
-                                'KittiSeg')
+        runs_dir = os.path.join(os.environ['TV_DIR_RUNS'], 'FacadeSeg')
     else:
         runs_dir = 'RUNS'
 
-    utils.set_dirs(hypes, tf.app.flags.FLAGS.hypes)
-
+    utils.set_dirs(hypes, FLAGS.hypes)
     utils._add_paths_to_sys(hypes)
 
-    train.maybe_download_and_extract(hypes)
+    logging.info("Evaluating on Validation data.")    
+    ana.do_analyze(FLAGS.logdir)
 
-    maybe_download_and_extract(runs_dir)
-    logging.info("Evaluating on Validation data.")
-    logdir = os.path.join(runs_dir, FLAGS.RUN)
-    # logging.info("Output images will be saved to {}".format)
-    ana.do_analyze(logdir)
-
-    logging.info("Creating output on test data.")
-    kitti_test.do_inference(logdir)
+    logging.info("Segmenting and test data. Creating output.")
+    ana.do_inference(FLAGS.logdir)
 
     logging.info("Analysis for pretrained model complete.")
-    logging.info("For evaluating your own models I recommend using:"
-                 "`tv-analyze --logdir /path/to/run`.")
-    logging.info("tv-analysis has a much cleaner interface.")
-
+    
 
 if __name__ == '__main__':
     tf.app.run()

@@ -12,14 +12,24 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow_fcn import fcn8_vgg
-
+import os
+import sys
+import logging
 import tensorflow as tf
 
-import os
+from tensorflow_fcn import fcn8_vgg
 
+# configure logging
+if 'TV_IS_DEV' in os.environ and os.environ['TV_IS_DEV']:
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                        level=logging.INFO,
+                        stream=sys.stdout)
+else:
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                        level=logging.INFO,
+                        stream=sys.stdout)
 
-def inference(hypes, images, train=True):
+def inference(hypes, images, train=True):    
     """Build the MNIST model up to where it may be used for inference.
 
     Args:
@@ -29,16 +39,17 @@ def inference(hypes, images, train=True):
     Returns:
       softmax_linear: Output tensor with the computed logits.
     """
-    vgg16_npy_path = os.path.join(hypes['dirs']['data_dir'], 'weights',
-                                  "vgg16.npy")
+
+    logging.info("....Creating encoder inference")
+
+    vgg16_npy_path = os.path.join(hypes['dirs']['cnn_dir'], 'weights', "vgg16.npy")
     vgg_fcn = fcn8_vgg.FCN8VGG(vgg16_npy_path=vgg16_npy_path)
-
     vgg_fcn.wd = hypes['wd']
-
-    vgg_fcn.build(images, train=train, num_classes=2, random_init_fc8=True)
+    
+    logging.info(".....Number of classes: " + str(hypes['arch']['num_classes']))    
+    vgg_fcn.build(images, train=train, num_classes=hypes['arch']['num_classes'], random_init_fc8=True)
 
     logits = {}
-
     logits['images'] = images
 
     if hypes['arch']['fcn_in'] == 'pool5':
